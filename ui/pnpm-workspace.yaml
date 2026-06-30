@@ -1,0 +1,9 @@
+# Approve native build scripts for these deps (Vite/SvelteKit need them).
+# pnpm 11+ reads `allowBuilds`; pnpm 10 reads `onlyBuiltDependencies` — both
+# listed so the build works regardless of the pnpm version CI resolves.
+allowBuilds:
+  esbuild: true
+  sharp: true
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

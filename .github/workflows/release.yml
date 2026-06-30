@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # Cross-platform `yucca` CLI binaries via GoReleaser (see .goreleaser.yml).
+  # Unsigned on purpose — go install / Homebrew / curl don't trip Gatekeeper.
+  # Runs first so it creates the GitHub release the macOS DMG is appended to.
+  go-binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          # On a tag: full release. On manual dispatch: snapshot build only (no publish).
+          args: ${{ startsWith(github.ref, 'refs/tags/') && 'release --clean' || 'build --snapshot --clean' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Bump the Homebrew formula (Formula/yucca.rb) from the release checksums.
+      - name: Publish Homebrew formula
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sha() { grep " yucca_${VERSION}_$1.tar.gz$" dist/checksums.txt | awk '{print $1}'; }
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/kobylinski/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          sed -e "s/__VERSION__/${VERSION}/" \
+              -e "s/__SHA_DARWIN_ARM64__/$(sha darwin_arm64)/" \
+              -e "s/__SHA_DARWIN_AMD64__/$(sha darwin_amd64)/" \
+              -e "s/__SHA_LINUX_ARM64__/$(sha linux_arm64)/" \
+              -e "s/__SHA_LINUX_AMD64__/$(sha linux_amd64)/" \
+              homebrew/yucca-formula.rb > tap/Formula/yucca.rb
+          cd tap
+          git config user.name "Marek Kobyliński"
+          git config user.email "marek@kobylinski.co"
+          git add Formula/yucca.rb
+          git commit -m "yucca: formula ${VERSION}" && git push || echo "formula unchanged"
+
+  # macOS tray app: Developer ID signed + notarized DMG, appended to the release.
+  # Signs in CI so the Developer ID private key lives in repo secrets, not a
+  # local keychain. Mirrors the setup proven on the Reed project.
+  # Required repo secrets (Settings → Secrets → Actions):
+  #   MACOS_CERT_P12_BASE64  base64 of the Developer ID Application .p12 (cert + key)
+  #   MACOS_CERT_PASSWORD    the .p12 export password
+  #   NOTARY_KEY_P8_BASE64   base64 of the App Store Connect API key (.p8)
+  #   NOTARY_KEY_ID          the key id (e.g. HNP54Z3BP7)
+  #   NOTARY_ISSUER_ID       the issuer id
+  macos-app:
+    runs-on: macos-14
+    needs: go-binaries
+    env:
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+      NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so `git describe --tags` resolves the version
+
+      - name: Import Developer ID certificate into a temp keychain
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASS="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Build + Developer ID sign the macOS app (DMG)
+        run: make -C client/macos dmg
+
+      - name: Notarize + staple
+        run: |
+          DMG="$(ls client/macos/Yucca-*.dmg | head -1)"
+          echo "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool submit "$DMG" \
+            --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          rm -f "$RUNNER_TEMP/notary.p8"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+
+      - name: Upload DMG to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.DMG }}
+
+      # Bump the Homebrew cask (Casks/yucca.rb) from the notarized DMG's checksum.
+      - name: Publish Homebrew cask
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG="$(ls client/macos/Yucca-*.dmg | head -1)"
+          SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/kobylinski/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/__VERSION__/${VERSION}/" -e "s/__SHA256__/${SHA}/" \
+            homebrew/yucca-cask.rb > tap/Casks/yucca.rb
+          cd tap
+          git config user.name "Marek Kobyliński"
+          git config user.email "marek@kobylinski.co"
+          git add Casks/yucca.rb
+          git commit -m "yucca: cask ${VERSION}" && git push || echo "cask unchanged"

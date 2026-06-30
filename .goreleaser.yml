@@ -1,0 +1,58 @@
+# Builds the cross-platform `yucca` CLI binaries on a v* tag.
+# The binaries are intentionally UNSIGNED: the install paths (go install,
+# Homebrew, curl | tar) don't trip macOS Gatekeeper, and a bare CLI binary
+# can't be stapled anyway. The macOS tray .app is signed + notarized by the
+# separate `macos-app` job in .github/workflows/release.yml.
+version: 2
+
+project_name: yucca
+
+# CI=true keeps pnpm non-interactive in the before-hooks (GitHub Actions sets
+# this automatically; declared here so local `goreleaser` runs behave the same).
+env:
+  - CI=true
+
+before:
+  hooks:
+    # Build + embed the UI (internal/daemon embeds ui_dist via go:embed).
+    - pnpm -C ui install --frozen-lockfile
+    - pnpm -C ui build
+    - rm -rf internal/daemon/ui_dist
+    - cp -r ui/build internal/daemon/ui_dist
+
+builds:
+  - id: yucca
+    main: ./cmd/yucca
+    binary: yucca
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: yucca
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"

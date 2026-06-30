@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "yucca": {
+      "type": "stdio",
+      "command": "yucca",
+      "args": ["mcp", "serve"]
+    }
+  }
+}

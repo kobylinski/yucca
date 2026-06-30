@@ -1,0 +1,17 @@
+# Yucca configuration
+# Files listed here are protected — Claude cannot read/write them directly
+
+project_name: Yucca Example Empty
+
+protected_files:
+  - .env
+
+# Secret fields identified during init
+# These keys within protected files contain sensitive values
+secrets:
+  - file: .env
+    key: DB_PASSWORD
+  - file: .env
+    key: API_KEY
+  - file: .env
+    key: SMTP_PASSWORD
