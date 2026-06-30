@@ -1,8 +1,8 @@
-// Package clipboard provides write-only access to the OS clipboard for
-// injecting secret values that the user needs to paste somewhere Yucca
-// cannot reach directly. It is deliberately write-only: there is no public
-// API to read the clipboard, so a secret manager never exposes a path to
-// exfiltrate whatever the user has copied.
+// Package clipboard provides access to the OS clipboard for injecting secret
+// values the user needs to paste somewhere Yucca cannot reach directly, and for
+// capturing a value the user copied straight into the vault. The only read
+// path, Read, feeds the capture flow and never returns the value to the model,
+// so the clipboard still cannot be exfiltrated to the agent.
 //
 // Backends are selected at runtime per OS — no cgo, so the daemon still
 // cross-compiles cleanly for macOS and Linux:
@@ -50,7 +50,7 @@ func CopyWithClear(value string, after time.Duration) error {
 	if after > 0 && value != "" {
 		go func() {
 			time.Sleep(after)
-			if cur, err := read(); err == nil && cur == value {
+			if cur, err := Read(); err == nil && cur == value {
 				_ = Copy("")
 			}
 		}()
@@ -106,8 +106,11 @@ func pasteCommand() (string, []string, error) {
 	}
 }
 
-// read returns the current clipboard contents. Private by design.
-func read() (string, error) {
+// Read returns the current clipboard contents. Exported only for the capture
+// flow (yucca_secret_capture / yucca_note_capture): the value is written
+// straight into the secret/note vault and is NEVER returned to the model, so
+// the clipboard still can't be exfiltrated to the agent.
+func Read() (string, error) {
 	name, args, err := pasteCommand()
 	if err != nil {
 		return "", err

@@ -14,7 +14,7 @@ func TestCopyWithClear_OnlyClearsIfUnchanged(t *testing.T) {
 	if err := Copy("yucca-clip-probe"); err != nil {
 		t.Skip("clipboard helper unavailable:", err)
 	}
-	saved, _ := read()
+	saved, _ := Read()
 	defer func() { _ = Copy(saved) }()
 
 	const window = 150 * time.Millisecond
@@ -24,7 +24,7 @@ func TestCopyWithClear_OnlyClearsIfUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(window + 250*time.Millisecond)
-	if cur, _ := read(); cur != "" {
+	if cur, _ := Read(); cur != "" {
 		t.Errorf("clipboard should be cleared when unchanged, got %q", cur)
 	}
 
@@ -34,7 +34,7 @@ func TestCopyWithClear_OnlyClearsIfUnchanged(t *testing.T) {
 	}
 	_ = Copy("user-copied-this")
 	time.Sleep(window + 250*time.Millisecond)
-	if cur, _ := read(); cur != "user-copied-this" {
+	if cur, _ := Read(); cur != "user-copied-this" {
 		t.Errorf("user content must be preserved, got %q", cur)
 	}
 }

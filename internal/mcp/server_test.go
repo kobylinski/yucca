@@ -63,7 +63,7 @@ func TestHandleToolsList(t *testing.T) {
 	require.True(t, ok)
 
 	tools := result["tools"].([]map[string]any)
-	assert.Len(t, tools, 11)
+	assert.Len(t, tools, 13)
 
 	names := make([]string, len(tools))
 	for i, t := range tools {
@@ -78,6 +78,8 @@ func TestHandleToolsList(t *testing.T) {
 	assert.Contains(t, names, "yucca_secret_store")
 	assert.Contains(t, names, "yucca_note_store")
 	assert.Contains(t, names, "yucca_note_list")
+	assert.Contains(t, names, "yucca_secret_capture")
+	assert.Contains(t, names, "yucca_note_capture")
 }
 
 func TestHandleUnknownMethod(t *testing.T) {

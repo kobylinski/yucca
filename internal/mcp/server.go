@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kobylinski/yucca/internal/clipboard"
 	"github.com/kobylinski/yucca/internal/fuzzy"
 	"github.com/kobylinski/yucca/internal/proxy"
 	"github.com/kobylinski/yucca/internal/scanner"
@@ -104,6 +105,17 @@ type noteStoreArgs struct {
 	Alias   string `json:"alias"`
 	Body    string `json:"body"`
 	Persist *bool  `json:"persist,omitempty"` // nil/true = persist; false = session-only temporary
+}
+
+type secretCaptureArgs struct {
+	Alias   string `json:"alias"`
+	Context string `json:"context,omitempty"`
+	Persist *bool  `json:"persist,omitempty"`
+}
+
+type noteCaptureArgs struct {
+	Alias   string `json:"alias"`
+	Persist *bool  `json:"persist,omitempty"`
 }
 
 type syncSecret struct {
@@ -439,6 +451,46 @@ func (s *Server) toolDefinitions() []map[string]any {
 				"required": []string{"alias", "value"},
 			},
 		},
+		{
+			"name":        "yucca_secret_capture",
+			"description": "Capture a secret the user just copied to their clipboard and store it WITHOUT the value ever passing through your context — you only name it. Use this instead of yucca_secret_store when the value is on the user's clipboard (or you ask them to copy it) and you should not see it: 'copy the API key and I'll capture it'. Returns only the alias + length, never the value. Reference it afterward as {{YUCCA:alias}}. Set persist:false for a session-only throwaway. Requires Yucca to run where the user's clipboard is (a local session).",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"alias": map[string]string{
+						"type":        "string",
+						"description": "Name for the secret (e.g. STRIPE_API_KEY). Allowed: A-Z a-z 0-9 _ - . (max 64 chars)",
+					},
+					"context": map[string]string{
+						"type":        "string",
+						"description": "Optional notes about this secret (service, origin, expiry)",
+					},
+					"persist": map[string]string{
+						"type":        "boolean",
+						"description": "Default true. Set false for a session-only TEMPORARY secret (erased when the connection ends).",
+					},
+				},
+				"required": []string{"alias"},
+			},
+		},
+		{
+			"name":        "yucca_note_capture",
+			"description": "Capture non-secret text the user just copied to their clipboard and store it as a project NOTE, without the text entering your context. Like yucca_note_store but the body comes from the clipboard instead of from you. Returns only the key + length. Set persist:false for a session-only note. Requires Yucca to run where the user's clipboard is.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"alias": map[string]string{
+						"type":        "string",
+						"description": "Short key/title for the note (e.g. staging-db-port). Allowed: A-Z a-z 0-9 _ - . (max 64 chars)",
+					},
+					"persist": map[string]string{
+						"type":        "boolean",
+						"description": "Default true. Set false for a session-only TEMPORARY note.",
+					},
+				},
+				"required": []string{"alias"},
+			},
+		},
 	}
 }
 
@@ -455,6 +507,8 @@ func (s *Server) handleToolCall(req jsonrpcRequest) jsonrpcResponse {
 	switch params.Name {
 	case "yucca_note_store":
 		return s.handleNoteStore(req.ID, params.Arguments)
+	case "yucca_note_capture":
+		return s.handleNoteCapture(req.ID, params.Arguments)
 	case "yucca_note_list":
 		return s.handleNoteList(req.ID, params.Arguments)
 	case "yucca_secret_request":
@@ -475,6 +529,8 @@ func (s *Server) handleToolCall(req jsonrpcRequest) jsonrpcResponse {
 		return s.handleSecretContext(req.ID, params.Arguments)
 	case "yucca_secret_store":
 		return s.handleSecretStore(req.ID, params.Arguments)
+	case "yucca_secret_capture":
+		return s.handleSecretCapture(req.ID, params.Arguments)
 	default:
 		return jsonrpcResponse{
 			JSONRPC: "2.0",
@@ -739,30 +795,38 @@ func (s *Server) handleSecretStore(id any, rawArgs json.RawMessage) jsonrpcRespo
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
 		return s.toolError(id, "Invalid arguments")
 	}
+	msg, isErr := s.storeSecret(args.Alias, args.Value, args.Context, args.Persist)
+	return s.toolResult(id, msg, isErr)
+}
 
-	if err := store.ValidateAlias(args.Alias); err != nil {
-		return s.toolResult(id, fmt.Sprintf("Invalid alias: %v", err), true)
+// storeSecret persists (or, for persist:false, temp-stores in this MCP process)
+// a secret value and returns the tool message + error flag. Shared by
+// yucca_secret_store and yucca_secret_capture so both follow the same
+// temp/persist and collision rules.
+func (s *Server) storeSecret(alias, value, context string, persist *bool) (string, bool) {
+	if err := store.ValidateAlias(alias); err != nil {
+		return fmt.Sprintf("Invalid alias: %v", err), true
 	}
 
 	// persist defaults to true; persist:false makes this a session-only temporary
 	// secret held in this MCP process — never written to disk or the keychain.
-	if args.Persist != nil && !*args.Persist {
+	if persist != nil && !*persist {
 		if vals, err := s.fetchCredentialValues(); err == nil {
-			if _, exists := vals[args.Alias]; exists {
-				return s.toolResult(id, fmt.Sprintf("Alias %q already exists as a persisted secret. Use a different alias for a temporary entry.", args.Alias), true)
+			if _, exists := vals[alias]; exists {
+				return fmt.Sprintf("Alias %q already exists as a persisted secret. Use a different alias for a temporary entry.", alias), true
 			}
 		}
-		s.temp.Put(args.Alias, args.Value, true)
-		return s.toolResult(id, fmt.Sprintf("Temporary secret %q stored for THIS session only (erased when the connection ends; never written to disk). Reference it as {{YUCCA:%s}} in yucca_exec. It cannot be written to files.", args.Alias, args.Alias), false)
+		s.temp.Put(alias, value, true)
+		return fmt.Sprintf("Temporary secret %q stored for THIS session only (erased when the connection ends; never written to disk). Reference it as {{YUCCA:%s}} in yucca_exec. It cannot be written to files.", alias, alias), false
 	}
 
 	payload := map[string]string{
-		"alias":  args.Alias,
-		"value":  args.Value,
+		"alias":  alias,
+		"value":  value,
 		"policy": "ask_session",
 	}
-	if args.Context != "" {
-		payload["context"] = args.Context
+	if context != "" {
+		payload["context"] = context
 	}
 	body, _ := json.Marshal(payload)
 
@@ -773,18 +837,42 @@ func (s *Server) handleSecretStore(id any, rawArgs json.RawMessage) jsonrpcRespo
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return s.toolResult(id, fmt.Sprintf("Error contacting daemon: %v", err), true)
+		return fmt.Sprintf("Error contacting daemon: %v", err), true
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusConflict {
-		return s.toolResult(id, fmt.Sprintf("Credential %q already exists. Use a different alias.", args.Alias), true)
+		return fmt.Sprintf("Credential %q already exists. Use a different alias.", alias), true
 	}
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return s.toolResult(id, fmt.Sprintf("Error: daemon returned status %d", resp.StatusCode), true)
+		return fmt.Sprintf("Error: daemon returned status %d", resp.StatusCode), true
 	}
 
-	return s.toolResult(id, fmt.Sprintf("Secret stored as %q. Use {{YUCCA:%s}} placeholder instead of the raw value.", args.Alias, args.Alias), false)
+	return fmt.Sprintf("Secret stored as %q. Use {{YUCCA:%s}} placeholder instead of the raw value.", alias, alias), false
+}
+
+// handleSecretCapture stores the value the user just copied to their clipboard
+// WITHOUT it ever entering the model's context — the agent only names it. The
+// value flows clipboard → vault; the tool returns a masked confirmation (length
+// only). Needs the MCP server to run where the user's clipboard is (local agent).
+func (s *Server) handleSecretCapture(id any, rawArgs json.RawMessage) jsonrpcResponse {
+	var args secretCaptureArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return s.toolError(id, "Invalid arguments")
+	}
+	value, err := clipboard.Read()
+	if err != nil {
+		return s.toolResult(id, fmt.Sprintf("Could not read the clipboard: %v", err), true)
+	}
+	value = strings.TrimRight(value, "\r\n")
+	if value == "" {
+		return s.toolResult(id, "The clipboard is empty — ask the user to copy the secret first, then capture it.", true)
+	}
+	msg, isErr := s.storeSecret(args.Alias, value, args.Context, args.Persist)
+	if isErr {
+		return s.toolResult(id, msg, true)
+	}
+	return s.toolResult(id, fmt.Sprintf("Captured %d characters from the clipboard (the value was never shown to you). %s", len(value), msg), false)
 }
 
 func (s *Server) handleNoteStore(id any, rawArgs json.RawMessage) jsonrpcResponse {
@@ -792,32 +880,61 @@ func (s *Server) handleNoteStore(id any, rawArgs json.RawMessage) jsonrpcRespons
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
 		return s.toolError(id, "Invalid arguments")
 	}
-	if err := store.ValidateAlias(args.Alias); err != nil {
-		return s.toolResult(id, fmt.Sprintf("Invalid alias: %v", err), true)
+	msg, isErr := s.storeNote(args.Alias, args.Body, args.Persist)
+	return s.toolResult(id, msg, isErr)
+}
+
+// storeNote saves (or, for persist:false, temp-stores) a note and returns the
+// tool message + error flag. Shared by yucca_note_store and yucca_note_capture.
+func (s *Server) storeNote(alias, noteBody string, persist *bool) (string, bool) {
+	if err := store.ValidateAlias(alias); err != nil {
+		return fmt.Sprintf("Invalid alias: %v", err), true
 	}
 
 	// persist defaults to true; persist:false makes this a session-only temporary
 	// note held in this MCP process — readable back via yucca_note_list this session.
-	if args.Persist != nil && !*args.Persist {
-		s.temp.Put(args.Alias, args.Body, false)
-		return s.toolResult(id, fmt.Sprintf("Temporary note %q saved for THIS session only (erased when the connection ends).", args.Alias), false)
+	if persist != nil && !*persist {
+		s.temp.Put(alias, noteBody, false)
+		return fmt.Sprintf("Temporary note %q saved for THIS session only (erased when the connection ends).", alias), false
 	}
 
-	body, _ := json.Marshal(map[string]string{"alias": args.Alias, "body": args.Body})
+	payload, _ := json.Marshal(map[string]string{"alias": alias, "body": noteBody})
 	slug := projectSlug(s.ProjectPath)
 	resp, err := http.Post(
 		fmt.Sprintf("%s/api/projects/%s/notes", s.DaemonAddr, slug),
 		"application/json",
-		bytes.NewReader(body),
+		bytes.NewReader(payload),
 	)
 	if err != nil {
-		return s.toolResult(id, fmt.Sprintf("Error contacting daemon: %v", err), true)
+		return fmt.Sprintf("Error contacting daemon: %v", err), true
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return s.toolResult(id, fmt.Sprintf("Error: daemon returned status %d", resp.StatusCode), true)
+		return fmt.Sprintf("Error: daemon returned status %d", resp.StatusCode), true
 	}
-	return s.toolResult(id, fmt.Sprintf("Note %q saved.", args.Alias), false)
+	return fmt.Sprintf("Note %q saved.", alias), false
+}
+
+// handleNoteCapture stores text the user just copied to their clipboard as a
+// non-secret project note, without the text entering the model's context.
+func (s *Server) handleNoteCapture(id any, rawArgs json.RawMessage) jsonrpcResponse {
+	var args noteCaptureArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return s.toolError(id, "Invalid arguments")
+	}
+	text, err := clipboard.Read()
+	if err != nil {
+		return s.toolResult(id, fmt.Sprintf("Could not read the clipboard: %v", err), true)
+	}
+	text = strings.TrimRight(text, "\r\n")
+	if text == "" {
+		return s.toolResult(id, "The clipboard is empty — ask the user to copy the note first, then capture it.", true)
+	}
+	msg, isErr := s.storeNote(args.Alias, text, args.Persist)
+	if isErr {
+		return s.toolResult(id, msg, true)
+	}
+	return s.toolResult(id, fmt.Sprintf("Captured %d characters from the clipboard. %s", len(text), msg), false)
 }
 
 func (s *Server) handleNoteList(id any, _ json.RawMessage) jsonrpcResponse {
