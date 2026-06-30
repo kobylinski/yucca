@@ -38,3 +38,6 @@ dist/
 
 # Internal dev notes — not published
 docs/journal/
+
+# Local signing material — never commit
+certs/
