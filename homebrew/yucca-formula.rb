@@ -37,6 +37,23 @@ class Yucca < Formula
     bin.install "yucca"
   end
 
+  service do
+    run [opt_bin/"yucca", "daemon", "--idle-timeout", "0"]
+    keep_alive true
+    log_path var/"log/yucca.log"
+    error_log_path var/"log/yucca.log"
+  end
+
+  def caveats
+    <<~EOS
+      Start the Yucca daemon (launchd-managed — auto-start at login, auto-restart):
+        brew services start yucca
+
+      Then register a project:
+        cd your-project && yucca init
+    EOS
+  end
+
   test do
     system "#{bin}/yucca", "version"
   end
