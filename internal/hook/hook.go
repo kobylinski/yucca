@@ -43,16 +43,12 @@ func SessionStartOutput(sessionID, daemonAddr string) string {
 		"hookSpecificOutput": map[string]any{
 			"hookEventName": "SessionStart",
 			"additionalContext": fmt.Sprintf(
-				"Yucca secret manager is active for this session.\n"+
-					"Session ID: %s\n"+
-					"Daemon: %s\n"+
-					"Available MCP tools:\n"+
-					"  - yucca_secret_request: Request a secret from the user\n"+
-					"  - yucca_credential_search: Search credentials by alias or context\n"+
-					"  - yucca_credential_context: Add notes to a credential\n"+
-					"  - yucca_exec: Run commands with secrets injected as env vars\n"+
-					"  - yucca_fs_read / yucca_fs_write: Read/write protected files with redaction\n"+
-					"Do NOT read or write protected files (.env, *.tfvars, etc.) directly.",
+				"Yucca secret manager is active for this session (session %s, daemon %s).\n"+
+					"Secrets stay out of your context — work with them by name:\n"+
+					"  - Need a secret you don't have? yucca_secret_request opens an approval UI for the user to enter it — never ask for secrets in chat.\n"+
+					"  - In yucca_exec and yucca_file, reference secrets as {{YUCCA:alias}} placeholders — never raw values or $ENV vars.\n"+
+					"  - Protected files (.env, *.tfvars, …) can ONLY be read/written via yucca_file (values are redacted on read); reading them directly is blocked.\n"+
+					"See the MCP tools/list for the full yucca_* toolset (store, capture, search, notes, clipboard).",
 				sessionID, daemonAddr),
 		},
 	}

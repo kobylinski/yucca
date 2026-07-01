@@ -37,14 +37,19 @@ func TestSessionStartOutput(t *testing.T) {
 	assert.Contains(t, ctx, "sess-1")
 }
 
-func TestSessionStartOutputMentionsSearchTool(t *testing.T) {
-	output := SessionStartOutput("session-123", "http://127.0.0.1:9777")
-	assert.Contains(t, output, "yucca_credential_search")
-	assert.Contains(t, output, "yucca_credential_context")
+func TestSessionStartOutputMentionsRealTools(t *testing.T) {
+	out := SessionStartOutput("session-123", "http://127.0.0.1:9777")
+	// Advertises the real tools + the placeholder convention…
+	assert.Contains(t, out, "yucca_secret_request")
+	assert.Contains(t, out, "yucca_file")
+	assert.Contains(t, out, "{{YUCCA:alias}}")
+	// …and never names that don't exist (see mcp.TestSessionStartContextToolsExist).
+	assert.NotContains(t, out, "yucca_credential_")
+	assert.NotContains(t, out, "yucca_fs_")
 }
 
 func TestPreToolUseDeny(t *testing.T) {
-	out := PreToolUseDeny("Use yucca_fs_read MCP tool instead")
+	out := PreToolUseDeny("Use the yucca_file MCP tool instead")
 	var result map[string]any
 	err := json.Unmarshal([]byte(out), &result)
 	require.NoError(t, err)
