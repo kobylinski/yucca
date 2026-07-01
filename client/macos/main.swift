@@ -6,18 +6,18 @@ func tlog(_ msg: String) {
     NSLog("[Yucca] %@", msg)
 }
 
-// Tray mark — single-colour (template) yucca stick-star with a hollow centre.
+// Tray mark — single-colour (template) yucca bloom.
 let yuccaIdleSVG = """
-<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><line x1="16" y1="12" x2="22" y2="12"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="12" y1="16" x2="12" y2="22"/><line x1="9.17" y1="14.83" x2="4.93" y2="19.07"/><line x1="8" y1="12" x2="2" y2="12"/><line x1="9.17" y1="9.17" x2="4.93" y2="4.93"/><line x1="12" y1="8" x2="12" y2="2"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><circle cx="12" cy="12" r="3"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 120 120"><circle cx="60" cy="60" r="42" fill="none" stroke="black" stroke-width="8"/><g transform="translate(60 60) scale(1.0) translate(-61 -65)"><g transform="translate(60 106) rotate(-30)"><path fill="black" d="M -7 0 C -6.4 -25.2, -2.9 -48, 0 -60 C 2.9 -48, 6.4 -25.2, 7 0 Z"/></g><g transform="translate(60 106) rotate(-6)"><path fill="black" d="M -8 0 C -7.4 -34.4, -3.4 -65.6, 0 -82 C 3.4 -65.6, 7.4 -34.4, 8 0 Z"/></g><g transform="translate(60 106) rotate(15)"><path fill="black" d="M -7.4 0 C -6.8 -30.2, -3.1 -57.6, 0 -72 C 3.1 -57.6, 6.8 -30.2, 7.4 0 Z"/></g><g transform="translate(60 106) rotate(39)"><path fill="black" d="M -6 0 C -5.5 -21.8, -2.5 -41.6, 0 -52 C 2.5 -41.6, 5.5 -21.8, 6 0 Z"/></g></g></svg>
 """
 
-// Shown when an approval is waiting — the centre fills in to signal action required.
+// Shown when an approval is waiting — the ring fills in to signal action required.
 let yuccaActionSVG = """
-<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><line x1="16" y1="12" x2="22" y2="12"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="12" y1="16" x2="12" y2="22"/><line x1="9.17" y1="14.83" x2="4.93" y2="19.07"/><line x1="8" y1="12" x2="2" y2="12"/><line x1="9.17" y1="9.17" x2="4.93" y2="4.93"/><line x1="12" y1="8" x2="12" y2="2"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><circle cx="12" cy="12" r="3.4" fill="black" stroke="none"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 120 120"><circle cx="60" cy="60" r="42" fill="none" stroke="black" stroke-width="8"/><circle cx="60" cy="60" r="26" fill="black"/></svg>
 """
 
 let yuccaOfflineSVG = """
-<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" opacity="0.4"><line x1="16" y1="12" x2="22" y2="12"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="12" y1="16" x2="12" y2="22"/><line x1="9.17" y1="14.83" x2="4.93" y2="19.07"/><line x1="8" y1="12" x2="2" y2="12"/><line x1="9.17" y1="9.17" x2="4.93" y2="4.93"/><line x1="12" y1="8" x2="12" y2="2"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><circle cx="12" cy="12" r="3"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 120 120" opacity="0.4"><circle cx="60" cy="60" r="42" fill="none" stroke="black" stroke-width="8"/><g transform="translate(60 60) scale(1.0) translate(-61 -65)"><g transform="translate(60 106) rotate(-30)"><path fill="black" d="M -7 0 C -6.4 -25.2, -2.9 -48, 0 -60 C 2.9 -48, 6.4 -25.2, 7 0 Z"/></g><g transform="translate(60 106) rotate(-6)"><path fill="black" d="M -8 0 C -7.4 -34.4, -3.4 -65.6, 0 -82 C 3.4 -65.6, 7.4 -34.4, 8 0 Z"/></g><g transform="translate(60 106) rotate(15)"><path fill="black" d="M -7.4 0 C -6.8 -30.2, -3.1 -57.6, 0 -72 C 3.1 -57.6, 6.8 -30.2, 7.4 0 Z"/></g><g transform="translate(60 106) rotate(39)"><path fill="black" d="M -6 0 C -5.5 -21.8, -2.5 -41.6, 0 -52 C 2.5 -41.6, 5.5 -21.8, 6 0 Z"/></g></g></svg>
 """
 
 // Lucide icons (https://lucide.dev, ISC) for the credential menu.
